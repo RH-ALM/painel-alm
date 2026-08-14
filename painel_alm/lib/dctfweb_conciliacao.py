@@ -16,6 +16,7 @@ Cada guia é conciliada e classificada separadamente:
 """
 
 import re
+import unicodedata
 from pathlib import Path
 from collections import Counter
 import io
@@ -58,6 +59,45 @@ def _extrair_cnpj(texto):
     cpfs = re.findall(r"\d{3}\.\d{3}\.\d{3}-\d{2}", texto)
     if cpfs:
         return Counter(cpfs).most_common(1)[0][0]
+    return None
+
+
+def _extrair_nome(texto):
+    """Nome da empresa/pessoa — usado como fallback de casamento quando os
+    documentos não compartilham nenhum número em comum (ex: extrato com CEI
+    x guia com CPF, que são identificadores totalmente diferentes, sem
+    dígito compartilhado)."""
+    m = re.search(r"Empresa:\s*\d+\s*-\s*([^\n]+?)\s*(?:P[áa]gina|\n)", texto)
+    if m:
+        return m.group(1).strip()
+    m = re.search(r"(?:CPF|CNPJ)\s+Nome\s+[\d./-]+\s+([^\n]+)", texto)
+    if m:
+        return m.group(1).strip()
+    return None
+
+
+def _normalizar_nome(nome):
+    """Maiúsculas, sem acento, só letras — pra comparar 'Queti Daiana Pezzi
+    Buss' com 'QUETI DAIANA PEZZI BUSS' independente de formatação."""
+    if not nome:
+        return ""
+    s = unicodedata.normalize("NFKD", nome).encode("ascii", "ignore").decode()
+    s = re.sub(r"[^A-Za-z ]", " ", s).upper()
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _achar_guia(guias_dict, cnpj_norm, nome_extrato):
+    """Acha a guia correspondente: primeiro por CNPJ/CPF/CEI, e se não achar
+    (documentos com numeração totalmente diferente), tenta por nome."""
+    guia = guias_dict.get(cnpj_norm)
+    if guia is not None:
+        return guia
+    alvo = _normalizar_nome(nome_extrato)
+    if not alvo:
+        return None
+    for g in guias_dict.values():
+        if _normalizar_nome(g.get("nome")) == alvo:
+            return g
     return None
 
 
@@ -151,7 +191,7 @@ def _ler_pasta(pasta):
             if not cnpj:
                 erros.append(f"{pdf_path.name}: não achei CNPJ no PDF")
                 continue
-            dados[_chave_cnpj(cnpj)] = {"texto": texto, "cnpj": cnpj, "arquivo": pdf_path.name}
+            dados[_chave_cnpj(cnpj)] = {"texto": texto, "cnpj": cnpj, "arquivo": pdf_path.name, "nome": _extrair_nome(texto)}
         except Exception as e:
             erros.append(f"{pdf_path.name}: erro ao ler ({e})")
     return dados, erros
@@ -171,7 +211,7 @@ def _ler_pasta_drive(drive, pasta_id):
             if not cnpj:
                 erros.append(f"{arq['name']}: não achei CNPJ no PDF")
                 continue
-            dados[_chave_cnpj(cnpj)] = {"texto": texto, "cnpj": cnpj, "arquivo": arq["name"]}
+            dados[_chave_cnpj(cnpj)] = {"texto": texto, "cnpj": cnpj, "arquivo": arq["name"], "nome": _extrair_nome(texto)}
         except Exception as e:
             erros.append(f"{arq['name']}: erro ao ler ({e})")
     return dados, erros
@@ -241,12 +281,14 @@ def _montar_resultados(extratos, guias_fgts, guias_dctfweb, clientes, avisos):
         codigo = next((c["codigo"] for c in clientes if _chave_cnpj(c["cnpj"]) == cnpj_norm), None)
 
         if valor_fgts is not None:
-            valor_guia_fgts, status_fgts, arq_fgts = _conciliar_guia(valor_fgts, guias_fgts.get(cnpj_norm), _extrair_valor_guia_fgts)
+            guia_fgts = _achar_guia(guias_fgts, cnpj_norm, dado.get("nome"))
+            valor_guia_fgts, status_fgts, arq_fgts = _conciliar_guia(valor_fgts, guia_fgts, _extrair_valor_guia_fgts)
         else:
             valor_guia_fgts, status_fgts, arq_fgts = None, "!", None  # não dá pra conciliar sem o valor de referência
 
         if esperado_inss is not None:
-            valor_guia_dctf, status_dctf, arq_dctf = _conciliar_guia(esperado_inss, guias_dctfweb.get(cnpj_norm), _extrair_valor_guia_dctf)
+            guia_dctf = _achar_guia(guias_dctfweb, cnpj_norm, dado.get("nome"))
+            valor_guia_dctf, status_dctf, arq_dctf = _conciliar_guia(esperado_inss, guia_dctf, _extrair_valor_guia_dctf)
         else:
             valor_guia_dctf, status_dctf, arq_dctf = None, "!", None
 
@@ -259,11 +301,12 @@ def _montar_resultados(extratos, guias_fgts, guias_dctfweb, clientes, avisos):
             "arquivo_extrato": dado["arquivo"], "arquivo_guia_fgts": arq_fgts, "arquivo_guia_dctf": arq_dctf,
         })
 
+    nomes_extratos = {_normalizar_nome(d.get("nome")) for d in extratos.values()} - {""}
     for cnpj_norm, guia in guias_fgts.items():
-        if cnpj_norm not in extratos:
+        if cnpj_norm not in extratos and _normalizar_nome(guia.get("nome")) not in nomes_extratos:
             avisos.append(f"{guia['arquivo']}: guia FGTS sem extrato correspondente (CNPJ {guia['cnpj']})")
     for cnpj_norm, guia in guias_dctfweb.items():
-        if cnpj_norm not in extratos:
+        if cnpj_norm not in extratos and _normalizar_nome(guia.get("nome")) not in nomes_extratos:
             avisos.append(f"{guia['arquivo']}: guia DCTFWEB sem extrato correspondente (CNPJ {guia['cnpj']})")
 
     resultados.sort(key=lambda r: (r["codigo"] is None, r["codigo"]))
@@ -283,7 +326,7 @@ def _ler_arquivos_upload(arquivos_upload):
             if not cnpj:
                 erros.append(f"{arq.name}: não achei CNPJ no PDF")
                 continue
-            dados[_chave_cnpj(cnpj)] = {"texto": texto, "cnpj": cnpj, "arquivo": arq.name}
+            dados[_chave_cnpj(cnpj)] = {"texto": texto, "cnpj": cnpj, "arquivo": arq.name, "nome": _extrair_nome(texto)}
         except Exception as e:
             erros.append(f"{arq.name}: erro ao ler ({e})")
     return dados, erros
