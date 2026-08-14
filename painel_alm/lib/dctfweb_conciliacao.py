@@ -279,6 +279,16 @@ def _montar_resultados(extratos, guias_fgts, guias_dctfweb, clientes, avisos):
 
         empresa = next((c["empresa"] for c in clientes if _chave_cnpj(c["cnpj"]) == cnpj_norm), None)
         codigo = next((c["codigo"] for c in clientes if _chave_cnpj(c["cnpj"]) == cnpj_norm), None)
+        if empresa is None and dado.get("nome"):
+            alvo = _normalizar_nome(dado["nome"])
+            for c in clientes:
+                nome_cliente = c.get("empresa") or ""
+                # nome do cliente costuma vir como "SOBRENOME, Nome" ou só o nome —
+                # compara por conjunto de palavras pra pegar mesmo fora de ordem
+                palavras_alvo = set(_normalizar_nome(nome_cliente).split())
+                if palavras_alvo and palavras_alvo <= set(alvo.split()):
+                    empresa, codigo = c["empresa"], c.get("codigo")
+                    break
 
         if valor_fgts is not None:
             guia_fgts = _achar_guia(guias_fgts, cnpj_norm, dado.get("nome"))
