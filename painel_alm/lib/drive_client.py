@@ -45,7 +45,8 @@ class DriveClient:
     def via_oauth(cls, client_secret_json_path, token_json_path="token.json"):
         """Login com conta pessoal do Google. Na primeira vez abre o navegador
         pra autorizar; depois disso reusa (e renova sozinho) o token salvo em
-        token_json_path — não precisa logar de novo toda hora."""
+        token_json_path — não precisa logar de novo toda hora.
+        Use isso rodando na SUA máquina (tem navegador disponível)."""
         creds = None
         if os.path.exists(token_json_path):
             creds = UserCredentials.from_authorized_user_file(token_json_path, SCOPES)
@@ -57,6 +58,19 @@ class DriveClient:
                 creds = flow.run_local_server(port=0)
             with open(token_json_path, "w") as f:
                 f.write(creds.to_json())
+        return cls(creds)
+
+    @classmethod
+    def via_token_dict(cls, token_info):
+        """Login a partir de um token JÁ GERADO (dict com as chaves de
+        token.json), sem abrir navegador — pra rodar num servidor sem tela
+        (ex: Streamlit Community Cloud). Gere o token.json uma vez na sua
+        máquina com via_oauth(), e cole o conteúdo dele nos 'Secrets' do
+        Streamlit Cloud. Renova sozinho quando expira, contanto que o
+        refresh_token esteja presente."""
+        creds = UserCredentials.from_authorized_user_info(token_info, SCOPES)
+        if not creds.valid and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
         return cls(creds)
 
     def _achar_filho(self, nome, pasta_pai_id=None, apenas_pastas=False):

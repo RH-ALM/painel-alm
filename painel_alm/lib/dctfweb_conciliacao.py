@@ -33,24 +33,47 @@ def _extrair_texto(pdf_path_ou_bytes):
 
 
 def _extrair_cnpj(texto):
-    """Retorna o CNPJ 'de exibição' (o mais completo que achar no PDF)."""
+    """Retorna o identificador 'de exibição' (CNPJ, CAEPF ou CPF) — o mais
+    completo que achar no PDF, nessa ordem de prioridade."""
     completos = re.findall(r"\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}", texto)
     if completos:
         return Counter(completos).most_common(1)[0][0]
+    # CAEPF (empregador pessoa física com empregado, ex: autônomo) — é o CPF
+    # (3.3.3) seguido de filial de 3 dígitos + DV, aparece no Domínio como "CAEPF:"
+    caepf = re.findall(r"\d{3}\.\d{3}\.\d{3}/\d{3}-\d{2}", texto)
+    if caepf:
+        return Counter(caepf).most_common(1)[0][0]
     # guia FGTS (GFD) só mostra a raiz do CNPJ, formatada tipo "79.402.764"
     m = re.search(r"CPF/CNPJ do Empregador.*?\n?.*?(\d{2}\.\d{3}\.\d{3})\b", texto, re.DOTALL)
     if m:
         return m.group(1)
+    # CEI (empregador pessoa física, formato antigo) — número de 12 dígitos
+    # sem pontuação, sempre logo depois do rótulo "CEI:"
+    m = re.search(r"CEI:\s*(\d{12})\b", texto)
+    if m:
+        return m.group(1)
+    # documento em CPF puro (ex: DARF/guia de empregador pessoa física) —
+    # só usa como último recurso: num extrato com vários funcionários, o
+    # CPF mais comum pode ser de um funcionário, não da empresa
+    cpfs = re.findall(r"\d{3}\.\d{3}\.\d{3}-\d{2}", texto)
+    if cpfs:
+        return Counter(cpfs).most_common(1)[0][0]
     return None
 
 
 def _chave_cnpj(cnpj_ou_texto):
-    """Chave de casamento entre extrato/guia FGTS/guia DCTFWEB: raiz do CNPJ
-    (8 primeiros dígitos). A guia FGTS (GFD) só mostra a raiz, sem filial/DV,
-    então não dá pra casar pelo CNPJ completo (14 dígitos)."""
-    digitos = re.sub(r"\D", "", cnpj_ou_texto or "")
-    if len(digitos) == 11:  # CPF (empregador pessoa física) — usa completo
-        return digitos
+    """Chave de casamento entre extrato/guia FGTS/guia DCTFWEB.
+    - CNPJ normal (filial de 4 dígitos) ou raiz solta (8 dígitos): raiz de 8.
+    - CAEPF (empregador pessoa física, filial de 3 dígitos) ou CPF puro:
+      base de 9 dígitos do CPF — extrato (CAEPF) e guia (CPF) têm o mesmo
+      CPF-base mas dígito verificador/filial diferentes no final, então
+      não dá pra casar pelo número completo."""
+    valor = cnpj_ou_texto or ""
+    if re.fullmatch(r"\d{3}\.\d{3}\.\d{3}/\d{3}-\d{2}", valor) or re.fullmatch(r"\d{3}\.\d{3}\.\d{3}-\d{2}", valor):
+        return re.sub(r"\D", "", valor)[:9]
+    digitos = re.sub(r"\D", "", valor)
+    if len(digitos) == 11:  # CPF sem formatação (fallback)
+        return digitos[:9]
     return digitos[:8]
 
 

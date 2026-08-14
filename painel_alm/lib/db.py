@@ -23,7 +23,13 @@ _ja_baixou_do_drive = False
 
 
 def _drive_habilitado():
-    return os.path.exists(_CLIENT_SECRET_PATH)
+    if os.path.exists(_CLIENT_SECRET_PATH):
+        return True
+    try:
+        import streamlit as st
+        return hasattr(st, "secrets") and "gcp_token" in st.secrets
+    except Exception:
+        return False
 
 
 def _get_drive():
@@ -33,7 +39,19 @@ def _get_drive():
     if _drive_client is None:
         sys.path.append(os.path.dirname(__file__))
         from drive_client import DriveClient
-        _drive_client = DriveClient.via_oauth(_CLIENT_SECRET_PATH, _TOKEN_PATH)
+        try:
+            import streamlit as st
+            tem_secrets = hasattr(st, "secrets") and "gcp_token" in st.secrets
+        except Exception:
+            tem_secrets = False
+
+        if tem_secrets:
+            # rodando no Streamlit Cloud: usa o token já pronto guardado nos Secrets
+            _drive_client = DriveClient.via_token_dict(dict(st.secrets["gcp_token"]))
+        else:
+            # rodando localmente: usa os arquivos client_secret.json / token.json
+            _drive_client = DriveClient.via_oauth(_CLIENT_SECRET_PATH, _TOKEN_PATH)
+
         _drive_pasta_id = _drive_client.achar_pasta_por_caminho(DRIVE_PASTA_NOME)
         if _drive_pasta_id is None:
             raise RuntimeError(
