@@ -75,6 +75,7 @@ def parse_ferias(text, reference_date=None):
         if not lines or not lines[0].strip():
             continue
         company = re.split(r'\s{2,}', lines[0].strip())[0].strip()
+        company = re.sub(r'\s*Página:\s*\d+\s*/\s*\d+\s*$', '', company).strip()
 
         tot_match = re.search(r'Total de empregados:\s*(\d+)', block)
         total_declared = int(tot_match.group(1)) if tot_match else None
