@@ -50,6 +50,36 @@ if uploaded is not None:
 
     st.divider()
 
+    status_options = ["Todos"] + [STATUS_LABEL[s] for s in ["DUPLICIDADE", "VENCIDA", "MATURADA", "A_VENCER"]]
+    filtro = st.selectbox("Filtrar por status", status_options)
+    filtered = results if filtro == "Todos" else [r for r in results if r['status_label'] == filtro]
+
+    st.write(f"**{len(filtered)} registros** (de {len(results)} no total)")
+
+    # Lista única, sem separar por empresa - só ordenada por status
+    # (vermelhas: Duplicidade/Vencida -> laranjas/amarelas: Maturada -> brancas: A vencer).
+    # 'filtered' já vem nessa ordem (herdada de 'results', ordenado pelo parser).
+    table_html = "<table style='width:100%; border-collapse: collapse;'>"
+    table_html += (
+        "<tr style='font-weight:bold; border-bottom: 2px solid #333;'>"
+        "<td style='padding:6px;'>Empresa</td><td style='padding:6px;'>Código</td>"
+        "<td style='padding:6px;'>Nome</td><td style='padding:6px;'>Status</td>"
+        "<td style='padding:6px;'>Dias</td><td style='padding:6px;'>Limite p/ gozo</td></tr>"
+    )
+    for r in filtered:
+        lim = r['limite'].strftime('%d/%m/%Y') if r['limite'] else '-'
+        color = STATUS_COLOR[r['status']]
+        table_html += (
+            f"<tr style='background-color:#{color}; border-bottom:1px solid #ddd;'>"
+            f"<td style='padding:6px;'>{r['empresa']}</td><td style='padding:6px;'>{r['codigo']}</td>"
+            f"<td style='padding:6px;'>{r['nome']}</td><td style='padding:6px;'>{r['status_label']}</td>"
+            f"<td style='padding:6px;'>{format_dias(r['dias'])}</td><td style='padding:6px;'>{lim}</td></tr>"
+        )
+    table_html += "</table>"
+    st.markdown(table_html, unsafe_allow_html=True)
+
+    st.divider()
+
     whatsapp_texts = build_whatsapp_texts(results, company_order)
     if whatsapp_texts:
         st.subheader("📲 Texto para WhatsApp (empregados com 30 dias)")
@@ -60,46 +90,6 @@ if uploaded is not None:
             st.markdown(f"**{empresa}**")
             st.code(whatsapp_texts[empresa], language=None)
         st.divider()
-
-    status_options = ["Todos"] + [STATUS_LABEL[s] for s in ["DUPLICIDADE", "VENCIDA", "MATURADA", "A_VENCER"]]
-    filtro = st.selectbox("Filtrar por status", status_options)
-    filtered = results if filtro == "Todos" else [r for r in results if r['status_label'] == filtro]
-
-    st.write(f"**{len(filtered)} registros** (de {len(results)} no total)")
-
-    # Blocos por empresa, na ordem em que aparecem no PDF (não em ordem alfabética
-    # nem por urgência) - dentro de cada empresa, mantém a ordem de urgência que
-    # já vem em 'filtered'. Sem cor de fundo no nome da empresa, só nas linhas.
-    by_empresa = {}
-    for r in filtered:
-        by_empresa.setdefault(r['empresa'], []).append(r)
-
-    for empresa in company_order:
-        rows = by_empresa.get(empresa)
-        if not rows:
-            continue
-        st.markdown(f"#### {empresa}")
-        table_html = "<table style='width:100%; border-collapse: collapse;'>"
-        table_html += (
-            "<tr style='font-weight:bold; border-bottom: 2px solid #333;'>"
-            "<td style='padding:6px;'>Código</td><td style='padding:6px;'>Nome</td>"
-            "<td style='padding:6px;'>Status</td><td style='padding:6px;'>Dias</td>"
-            "<td style='padding:6px;'>Limite p/ gozo</td></tr>"
-        )
-        for r in rows:
-            lim = r['limite'].strftime('%d/%m/%Y') if r['limite'] else '-'
-            color = STATUS_COLOR[r['status']]
-            table_html += (
-                f"<tr style='background-color:#{color}; border-bottom:1px solid #ddd;'>"
-                f"<td style='padding:6px;'>{r['codigo']}</td><td style='padding:6px;'>{r['nome']}</td>"
-                f"<td style='padding:6px;'>{r['status_label']}</td><td style='padding:6px;'>{format_dias(r['dias'])}</td>"
-                f"<td style='padding:6px;'>{lim}</td></tr>"
-            )
-        table_html += "</table>"
-        st.markdown(table_html, unsafe_allow_html=True)
-        st.write("")
-
-    st.divider()
 
     def build_excel(rows):
         from openpyxl import Workbook
