@@ -44,8 +44,12 @@ def _extrair_cnpj(texto):
     caepf = re.findall(r"\d{3}\.\d{3}\.\d{3}/\d{3}-\d{2}", texto)
     if caepf:
         return Counter(caepf).most_common(1)[0][0]
-    # guia FGTS (GFD) só mostra a raiz do CNPJ, formatada tipo "79.402.764"
-    m = re.search(r"CPF/CNPJ do Empregador.*?\n?.*?(\d{2}\.\d{3}\.\d{3})\b", texto, re.DOTALL)
+    # guia FGTS (GFD) só mostra a raiz do CNPJ, formatada tipo "79.402.764".
+    # \b no início + (?!-) no final evitam casar um pedaço de CPF completo
+    # (ex: "37.817.629" dentro de "037.817.629-39") — se vier seguido de
+    # "-dd" é CPF de verdade, não raiz de CNPJ, e quem trata isso é o
+    # fallback de CPF puro mais abaixo.
+    m = re.search(r"CPF/CNPJ do Empregador.*?\n?.*?\b(\d{2}\.\d{3}\.\d{3})\b(?!-)", texto, re.DOTALL)
     if m:
         return m.group(1)
     # CEI (empregador pessoa física, formato antigo) — número de 12 dígitos
@@ -71,6 +75,15 @@ def _extrair_nome(texto):
     if m:
         return m.group(1).strip()
     m = re.search(r"(?:CPF|CNPJ)\s+Nome\s+[\d./-]+\s+([^\n]+)", texto)
+    if m:
+        return m.group(1).strip()
+    # guia FGTS Digital (GFD): "CPF/CNPJ do Empregador Nome/Razão Social..."
+    # numa linha, valores (número + nome) na linha seguinte
+    m = re.search(
+        r"CPF/CNPJ do Empregador.*?\n"
+        r"(?:\d{2}\.\d{3}\.\d{3}/\d{4}-\d{2}|\d{3}\.\d{3}\.\d{3}-\d{2})\s+([A-ZÀ-Ü][^\n]*?)(?:\s{2,}|\n)",
+        texto,
+    )
     if m:
         return m.group(1).strip()
     return None
@@ -279,16 +292,6 @@ def _montar_resultados(extratos, guias_fgts, guias_dctfweb, clientes, avisos):
 
         empresa = next((c["empresa"] for c in clientes if _chave_cnpj(c["cnpj"]) == cnpj_norm), None)
         codigo = next((c["codigo"] for c in clientes if _chave_cnpj(c["cnpj"]) == cnpj_norm), None)
-        if empresa is None and dado.get("nome"):
-            alvo = _normalizar_nome(dado["nome"])
-            for c in clientes:
-                nome_cliente = c.get("empresa") or ""
-                # nome do cliente costuma vir como "SOBRENOME, Nome" ou só o nome —
-                # compara por conjunto de palavras pra pegar mesmo fora de ordem
-                palavras_alvo = set(_normalizar_nome(nome_cliente).split())
-                if palavras_alvo and palavras_alvo <= set(alvo.split()):
-                    empresa, codigo = c["empresa"], c.get("codigo")
-                    break
 
         if valor_fgts is not None:
             guia_fgts = _achar_guia(guias_fgts, cnpj_norm, dado.get("nome"))
