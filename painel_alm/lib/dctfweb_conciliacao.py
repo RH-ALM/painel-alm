@@ -274,21 +274,33 @@ def _conciliar_guia(valor_esperado, guia, extrator_valor):
     return valor_guia, status, guia["arquivo"]
 
 
-def _achar_empresa_cliente(clientes, cnpj_norm, nome_extrato):
-    """Acha o cliente correspondente na lista: primeiro por CNPJ/CPF/CEI
-    (via _chave_cnpj), e se não achar (ex: extrato trouxe CEI mas o
-    cliente está cadastrado pelo CPF -- chaves de tamanho diferente,
-    nunca batem por número), tenta por nome -- mesmo fallback que já
-    existe em _achar_guia."""
+def _achar_empresa_cliente(clientes, cnpj_norm, nome_extrato, docs_extras=()):
+    """Acha o cliente correspondente na lista, em ordem de confiabilidade:
+    1. CNPJ/CPF/CEI do próprio extrato (via _chave_cnpj) -- caso normal.
+    2. Nome extraído do extrato, comparado com o nome cadastrado do cliente.
+    3. CPF/CNPJ encontrado DENTRO das guias já casadas por nome (docs_extras)
+       -- caso do empregador doméstico/autônomo: o extrato do Domínio só
+       tem o CEI, mas a guia FGTS/DCTFWEB (uma vez achada pelo nome) já
+       traz o CPF de verdade dessa pessoa junto do nome completo -- esse
+       CPF é uma chave muito mais confiável que comparar nome abreviado
+       ("Queti" no cadastro) contra nome completo do extrato ("Queti
+       Daiana Pezzi Buss"), que nunca bate por igualdade exata.
+    """
     for c in clientes:
         if _chave_cnpj(c["cnpj"]) == cnpj_norm:
             return c
     alvo = _normalizar_nome(nome_extrato)
-    if not alvo:
-        return None
-    for c in clientes:
-        if _normalizar_nome(c.get("empresa")) == alvo:
-            return c
+    if alvo:
+        for c in clientes:
+            if _normalizar_nome(c.get("empresa")) == alvo:
+                return c
+    for doc in docs_extras:
+        if not doc:
+            continue
+        chave_doc = _chave_cnpj(doc)
+        for c in clientes:
+            if _chave_cnpj(c["cnpj"]) == chave_doc:
+                return c
     return None
 
 
@@ -308,21 +320,26 @@ def _montar_resultados(extratos, guias_fgts, guias_dctfweb, clientes, avisos):
 
         esperado_inss = round(total_inss + total_irrf, 2) if (total_inss is not None and total_irrf is not None) else None
 
-        cliente = _achar_empresa_cliente(clientes, cnpj_norm, dado.get("nome"))
-        empresa = cliente["empresa"] if cliente else None
-        codigo = cliente["codigo"] if cliente else None
-
+        # acha as guias ANTES do cliente -- o CPF/CNPJ de dentro delas
+        # (uma vez achadas por nome) serve de pista extra pra achar o cliente
         if valor_fgts is not None:
             guia_fgts = _achar_guia(guias_fgts, cnpj_norm, dado.get("nome"))
             valor_guia_fgts, status_fgts, arq_fgts = _conciliar_guia(valor_fgts, guia_fgts, _extrair_valor_guia_fgts)
         else:
+            guia_fgts = None
             valor_guia_fgts, status_fgts, arq_fgts = None, "!", None  # não dá pra conciliar sem o valor de referência
 
         if esperado_inss is not None:
             guia_dctf = _achar_guia(guias_dctfweb, cnpj_norm, dado.get("nome"))
             valor_guia_dctf, status_dctf, arq_dctf = _conciliar_guia(esperado_inss, guia_dctf, _extrair_valor_guia_dctf)
         else:
+            guia_dctf = None
             valor_guia_dctf, status_dctf, arq_dctf = None, "!", None
+
+        docs_das_guias = [g["cnpj"] for g in (guia_fgts, guia_dctf) if g]
+        cliente = _achar_empresa_cliente(clientes, cnpj_norm, dado.get("nome"), docs_das_guias)
+        empresa = cliente["empresa"] if cliente else None
+        codigo = cliente["codigo"] if cliente else None
 
         # nenhuma empresa é descartada — mesmo com falha de extração, ela aparece na lista com status "!" (erro)
         resultados.append({
