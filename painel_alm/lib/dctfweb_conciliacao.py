@@ -274,6 +274,24 @@ def _conciliar_guia(valor_esperado, guia, extrator_valor):
     return valor_guia, status, guia["arquivo"]
 
 
+def _achar_empresa_cliente(clientes, cnpj_norm, nome_extrato):
+    """Acha o cliente correspondente na lista: primeiro por CNPJ/CPF/CEI
+    (via _chave_cnpj), e se não achar (ex: extrato trouxe CEI mas o
+    cliente está cadastrado pelo CPF -- chaves de tamanho diferente,
+    nunca batem por número), tenta por nome -- mesmo fallback que já
+    existe em _achar_guia."""
+    for c in clientes:
+        if _chave_cnpj(c["cnpj"]) == cnpj_norm:
+            return c
+    alvo = _normalizar_nome(nome_extrato)
+    if not alvo:
+        return None
+    for c in clientes:
+        if _normalizar_nome(c.get("empresa")) == alvo:
+            return c
+    return None
+
+
 def _montar_resultados(extratos, guias_fgts, guias_dctfweb, clientes, avisos):
     resultados = []
     for cnpj_norm, dado in extratos.items():
@@ -290,8 +308,9 @@ def _montar_resultados(extratos, guias_fgts, guias_dctfweb, clientes, avisos):
 
         esperado_inss = round(total_inss + total_irrf, 2) if (total_inss is not None and total_irrf is not None) else None
 
-        empresa = next((c["empresa"] for c in clientes if _chave_cnpj(c["cnpj"]) == cnpj_norm), None)
-        codigo = next((c["codigo"] for c in clientes if _chave_cnpj(c["cnpj"]) == cnpj_norm), None)
+        cliente = _achar_empresa_cliente(clientes, cnpj_norm, dado.get("nome"))
+        empresa = cliente["empresa"] if cliente else None
+        codigo = cliente["codigo"] if cliente else None
 
         if valor_fgts is not None:
             guia_fgts = _achar_guia(guias_fgts, cnpj_norm, dado.get("nome"))
