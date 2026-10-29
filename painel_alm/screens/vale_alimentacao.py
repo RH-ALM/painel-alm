@@ -84,6 +84,13 @@ if res:
         hide_index=True,
     )
 
+    st.download_button(
+        "Baixar lista completa (Excel)",
+        data=V.gerar_planilha(res, competencia),
+        file_name=f"Conferencia {competencia.replace('/', '.')}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    )
+
     st.subheader("Recibos")
     if st.button("Gerar recibos (ZIP com um PDF por empresa)"):
         data, n = V.gerar_recibos_zip(res, competencia)

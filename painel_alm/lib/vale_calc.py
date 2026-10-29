@@ -309,3 +309,46 @@ def gerar_recibos_zip(linhas, competencia, recibos_pdfs_info=None):
             nome = f"{empresa.upper()} - RECIBOS {competencia.replace('/', '.')}.pdf"
             z.writestr(nome, pdf_buf.getvalue())
     return buf.getvalue(), len(grupos)
+
+
+def gerar_planilha(linhas, competencia):
+    """Lista completa da conciliação em Excel (todas as linhas, sem filtro)."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Conferência"
+    cab = ["Empresa", "CNPJ/CEI", "Código", "Funcionário", "Verba", "Dias devidos",
+           "Valor devido (R$)", "Valor na relação (R$)", "Diferença (R$)", "OK / NÃO",
+           "Observação", "Recibo (arquivo)"]
+    ws.append(cab)
+    for c in ws[1]:
+        c.font = Font(bold=True, color="FFFFFF")
+        c.fill = PatternFill("solid", fgColor="1F3A5F")
+        c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+    ws.row_dimensions[1].height = 32
+
+    red = PatternFill("solid", fgColor="F8D7DA")
+    green = PatternFill("solid", fgColor="D8F0DC")
+    for l in linhas:
+        ws.append([
+            l["empresa"], l.get("id") or "", l["codigo"], l["funcionario"], l["verba"],
+            l["dias"], l["devido"], l["valor_relacao"], l["diferenca"], l["status"],
+            l.get("obs") or "", l.get("arquivo_recibo") or "",
+        ])
+        r = ws.max_row
+        for col in (7, 8, 9):
+            ws.cell(r, col).number_format = '#,##0.00'
+        ws.cell(r, 10).fill = green if l["status"] == "OK" else red
+
+    widths = [34, 20, 9, 34, 16, 13, 18, 22, 16, 11, 40, 50]
+    for i, w in enumerate(widths, 1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = "A2"
+    ws.auto_filter.ref = ws.dimensions
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    return buf.getvalue()
