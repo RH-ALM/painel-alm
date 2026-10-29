@@ -7,7 +7,7 @@ import pandas as pd
 sys.path.append(os.path.join(os.path.dirname(__file__), '..', 'lib'))
 import vale_calc as V
 
-st.title("🍽️ Vale Alimentação / Reembolso")
+st.title("🍽️ Reembolso das Despesas Diárias")
 st.caption(
     "Suba a relação do Domínio e os recibos da folha do mês. A conciliação e os recibos "
     "são recalculados a cada clique — nada é salvo."
