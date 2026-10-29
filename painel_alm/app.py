@@ -17,6 +17,7 @@ pages = {
     "RH": [
         st.Page("screens/ferias.py", title="Férias", icon="📋"),
         st.Page("screens/dctfweb.py", title="Conciliação FGTS/DCTFWEB", icon="🧾"),
+        st.Page("screens/conciliacao_vale.py", title="Conciliação Vale Alimentação", icon="🍽️"),
     ],
     "Contabilidade": [
         st.Page("screens/extratos_ofx.py", title="Extratos OFX", icon="💰"),
@@ -65,6 +66,7 @@ with st.sidebar:
         with col_indent:
             st.page_link("screens/ferias.py", label="Férias", icon="📋")
             st.page_link("screens/dctfweb.py", label="Conciliação FGTS/DCTFWEB", icon="🧾")
+            st.page_link("screens/conciliacao_vale.py", label="Conciliação Vale Alimentação", icon="🍽️")
 
     seta_contab = "▾" if st.session_state.show_contab else "▸"
     if st.button(f"{seta_contab} Contabilidade", key="btn_contab", use_container_width=True):
