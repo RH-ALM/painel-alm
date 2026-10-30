@@ -200,8 +200,12 @@ def conciliar(relacao, recibos, afastamentos, competencia, feriados):
     """Compara cada linha da relacao com o recibo. Retorna lista de dicts."""
     ini, fim = _competencia(competencia)
     resultado = []
+    usados = {}      # recibos que casaram com alguma empresa da relação
+    casados = set()  # funcionários do recibo que casaram com alguma linha da relação
     for emp in relacao:
         rec = casar_empresa(emp, recibos)
+        if rec:
+            usados[rec["arquivo"]] = rec
         for l in emp["linhas"]:
             verba, unit = verba_da_linha(l["valor"])
             base = {"empresa": emp["empresa"], "tipo_id": emp["tipo_id"], "id": emp["id"],
@@ -209,6 +213,8 @@ def conciliar(relacao, recibos, afastamentos, competencia, feriados):
                     "unit": unit, "valor_relacao": round(l["valor"], 2),
                     "arquivo_recibo": rec["arquivo"] if rec else None}
             f = achar_funcionario(l["nome"], rec["funcionarios"]) if rec else None
+            if f is not None:
+                casados.add(id(f))
             afs = [a for a in afastamentos
                    if norm(a["empresa"]) == norm(emp["empresa"]) and achar_nome(a["funcionario"], l["nome"])]
             if f is None and afs:
@@ -229,6 +235,28 @@ def conciliar(relacao, recibos, afastamentos, competencia, feriados):
             base.update({"dias": dias, "devido": devido, "diferenca": dif,
                          "status": "OK" if abs(dif) < 0.01 else "NÃO", "obs": obs})
             resultado.append(base)
+    # quem está no recibo (de qualquer empresa) mas não na relação de vale:
+    # entra na lista com dias e valor devido, valor na relação R$ 0,00 e status NÃO
+    for rec in recibos:
+        emp_rec = rec["empresa"] or ""
+        for f in rec["funcionarios"].values():
+            if id(f) in casados or f["pro_labore"]:
+                continue
+            afs = [a for a in afastamentos
+                   if norm(a["empresa"]) == norm(emp_rec) and achar_nome(a["funcionario"], f["nome"])]
+            uteis, cheio = calcular_dias(f["adm"], afs, ini, fim, feriados)
+            if cheio:
+                dias, obs = DIAS_MES_CHEIO, "mes cheio (acordo)"
+            else:
+                dias, obs = uteis, "dias uteis"
+            devido = round(dias * UNIT_REEMB, 2)
+            resultado.append({
+                "empresa": emp_rec, "tipo_id": rec["tipo_id"], "id": rec["id"],
+                "codigo": f["codigo"], "funcionario": f["nome"], "verba": "Reembolso",
+                "unit": UNIT_REEMB, "valor_relacao": 0.0, "arquivo_recibo": rec["arquivo"],
+                "dias": dias, "devido": devido, "diferenca": round(-devido, 2), "status": "NÃO",
+                "obs": "Não está na relação de vale (Reembolso R$93 assumido); " + obs,
+            })
     return resultado
 
 
